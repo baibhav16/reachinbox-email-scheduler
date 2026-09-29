@@ -1,0 +1,1 @@
+{"name":"@reachinbox/worker","version":"1.0.0","type":"module","scripts":{"dev":"tsx watch src/index.ts","start":"tsx src/index.ts","typecheck":"tsc -p tsconfig.json --noEmit","lint":"eslint src","build":"tsc -p tsconfig.json"},"dependencies":{"@reachinbox/shared":"*"}}

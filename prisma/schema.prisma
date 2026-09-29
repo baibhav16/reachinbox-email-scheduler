@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmailStatus {
+  SCHEDULED
+  PROCESSING
+  SENT
+  FAILED
+}
+
+enum CampaignStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id          String       @id @default(cuid())
+  googleId    String       @unique
+  name        String
+  email       String       @unique
+  avatarUrl   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  memberships UserTenant[]
+}
+
+model Tenant {
+  id            String            @id @default(cuid())
+  name          String
+  createdAt     DateTime          @default(now())
+  memberships   UserTenant[]
+  senders       Sender[]
+  campaigns     EmailCampaign[]
+  emails        ScheduledEmail[]
+  slack         SlackConnection?
+}
+
+model UserTenant {
+  userId   String
+  tenantId String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@id([userId, tenantId])
+  @@index([tenantId])
+}
+
+model Sender {
+  id            String   @id @default(cuid())
+  tenantId      String
+  name          String
+  email         String
+  smtpHost      String
+  smtpPort      Int      @default(587)
+  smtpUser      String
+  smtpPassword  String
+  hourlyLimit   Int?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaigns     EmailCampaign[]
+  emails        ScheduledEmail[]
+  @@unique([tenantId, email])
+  @@index([tenantId, isActive])
+}
+
+model EmailCampaign {
+  id          String        @id @default(cuid())
+  idempotencyKey String     @unique
+  tenantId    String
+  subject     String
+  body        String
+  startTime   DateTime
+  delayMs     Int
+  hourlyLimit Int?
+  senderId    String
+  createdBy   String
+  status      CampaignStatus @default(SCHEDULED)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sender      Sender        @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  emails      ScheduledEmail[]
+  @@index([tenantId, createdAt])
+}
+
+model ScheduledEmail {
+  id             String      @id @default(cuid())
+  campaignId     String
+  tenantId       String
+  senderId       String
+  recipient      String
+  subject        String
+  body           String
+  scheduledAt    DateTime
+  status         EmailStatus @default(SCHEDULED)
+  attempts       Int         @default(0)
+  sentAt         DateTime?
+  failedAt       DateTime?
+  failureReason  String?
+  bullJobId      String?     @unique
+  idempotencyKey String      @unique
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  campaign       EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sender         Sender      @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  @@index([tenantId, status, scheduledAt])
+  @@index([senderId, scheduledAt])
+  @@index([campaignId])
+  @@unique([campaignId, recipient])
+}
+
+model SlackConnection {
+  id          String   @id @default(cuid())
+  tenantId    String   @unique
+  accessToken String
+  teamId      String?
+  teamName    String?
+  channelId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}

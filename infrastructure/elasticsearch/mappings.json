@@ -1,0 +1,15 @@
+{
+  "mappings": {
+    "properties": {
+      "tenantId": { "type": "keyword" },
+      "recipient": { "type": "text" },
+      "subject": { "type": "text" },
+      "body": { "type": "text" },
+      "status": { "type": "keyword" },
+      "senderId": { "type": "keyword" },
+      "campaignId": { "type": "keyword" },
+      "scheduledAt": { "type": "date" },
+      "sentAt": { "type": "date" }
+    }
+  }
+}
