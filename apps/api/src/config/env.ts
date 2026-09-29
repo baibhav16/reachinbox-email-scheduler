@@ -1,5 +1,11 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { z } from 'zod';
+
+const localEnv = resolve(process.cwd(), '.env');
+dotenv.config({ path: existsSync(localEnv) ? localEnv : resolve(process.cwd(), '../../.env') });
+
 const schema = z.object({
   NODE_ENV: z.enum(['development','test','production']).default('development'), PORT: z.coerce.number().default(4000),
   WEB_ORIGIN: z.string().url().default('http://localhost:5173'), API_ORIGIN: z.string().url().default('http://localhost:4000'),

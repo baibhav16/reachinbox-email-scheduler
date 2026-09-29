@@ -1,4 +1,10 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const localEnv = resolve(process.cwd(), '.env');
+dotenv.config({ path: existsSync(localEnv) ? localEnv : resolve(process.cwd(), '../../.env') });
+
 export const config = {
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
   concurrency: Number(process.env.WORKER_CONCURRENCY ?? 5),

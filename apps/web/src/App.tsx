@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiOrigin, request } from './api';
 
 type User = { id: string; name: string; email: string; avatarUrl?: string | null };
-type Email = { id: string; recipient: string; subject: string; body: string; scheduledAt: string; sentAt?: string | null; status: string };
+type Email = { id: string; recipient: string; subject: string; body: string; scheduledAt: string; sentAt?: string | null; status: string; previewUrl?: string | null };
 type Sender = { id: string; name: string; email: string; smtpHost: string; smtpPort: number; hourlyLimit?: number | null; isActive: boolean };
 type Me = { user: User; tenant: { id: string; name: string } };
 const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
@@ -16,6 +16,7 @@ export default function App() {
   const [view, setView] = useState<'scheduled' | 'sent' | 'compose'>('scheduled');
   const [toast, setToast] = useState('');
   const [senderOpen, setSenderOpen] = useState(false);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [search, setSearch] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const me = useQuery({ queryKey: ['me'], queryFn: () => request<Me>('/api/auth/me'), retry: false });
@@ -62,10 +63,11 @@ export default function App() {
           <div className="toolbar-actions"><button className="icon-button" title="Filter"><Icon>▽</Icon></button><button className="icon-button" title="Refresh" onClick={refresh}><Icon>↻</Icon></button><button className="new-email" onClick={() => setView('compose')}>＋ <span>Compose</span></button></div>
         </header>
         <div className="list-context">{search.trim() ? <><span>Search results</span><small>{searchQuery.data?.emails.length ?? ''}</small></> : <><span>{view === 'sent' ? 'Sent mail' : 'Scheduled mail'}</span><small>{view === 'sent' ? sent.data?.emails.length ?? '' : scheduled.data?.emails.length ?? ''}</small></>}</div>
-        {listLoading ? <div className="list-loading"><span className="spinner"/>Loading emails…</div> : listError ? <div className="error-state" role="alert"><b>Could not load emails</b><span>{listError.message}</span><button onClick={refresh}>Try again</button></div> : rows.length ? <section className="email-list">{rows.map(email => <EmailRow key={email.id} email={email}/>)}</section> : <EmptyState view={search.trim() ? 'search' : view} onCompose={() => setView('compose')}/>}
+        {listLoading ? <div className="list-loading"><span className="spinner"/>Loading emails…</div> : listError ? <div className="error-state" role="alert"><b>Could not load emails</b><span>{listError.message}</span><button onClick={refresh}>Try again</button></div> : rows.length ? <section className="email-list">{rows.map(email => <EmailRow key={email.id} email={email} onOpen={() => setSelectedEmail(email)}/>)}</section> : <EmptyState view={search.trim() ? 'search' : view} onCompose={() => setView('compose')}/>}
       </>}
     </main>
     {senderOpen && <SenderDialog onClose={() => setSenderOpen(false)} onSaved={async () => { setSenderOpen(false); await queryClient.invalidateQueries({ queryKey: ['senders'] }); setToast('Sender added.'); }}/>} 
+    {selectedEmail && <EmailDialog email={selectedEmail} onClose={() => setSelectedEmail(null)}/>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
@@ -80,9 +82,14 @@ function EmptyState({ view, onCompose }: { view: string; onCompose: () => void }
   const sent = view === 'sent'; const search = view === 'search';
   return <div className="empty-state"><div className="empty-icon">{search ? '⌕' : sent ? '➤' : '◷'}</div><h2>{search ? 'No matching emails' : sent ? 'Nothing sent yet' : 'No emails scheduled'}</h2><p>{search ? 'Try a different recipient, subject, or search term.' : sent ? 'Emails you send will appear here.' : 'Your upcoming emails will appear here once you schedule a campaign.'}</p>{!search && !sent && <button className="outline-green" onClick={onCompose}>Compose an email</button>}</div>;
 }
-function EmailRow({ email }: { email: Email }) {
+function EmailRow({ email, onOpen }: { email: Email; onOpen: () => void }) {
   const date = email.status === 'SENT' && email.sentAt ? email.sentAt : email.scheduledAt;
-  return <article className="email-row"><div className="row-recipient">To: <strong>{email.recipient}</strong></div><span className={`status-pill ${email.status.toLowerCase()}`}>{email.status === 'SCHEDULED' ? `◷ ${new Date(date).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : email.status.toLowerCase()}</span><div className="row-subject"><b>{email.subject}</b><span> – {email.body.slice(0, 105).replace(/\s+/g, ' ')}</span></div><button className="star-button" title="Email details">☆</button></article>;
+  return <article className="email-row" role="button" tabIndex={0} onClick={onOpen} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(); } }}><div className="row-recipient">To: <strong>{email.recipient}</strong></div><span className={`status-pill ${email.status.toLowerCase()}`}>{email.status === 'SCHEDULED' ? `◷ ${new Date(date).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : email.status.toLowerCase()}</span><div className="row-subject"><b>{email.subject}</b><span> – {email.body.slice(0, 105).replace(/\s+/g, ' ')}</span></div><span className="star-button" aria-hidden="true">↗</span></article>;
+}
+
+function EmailDialog({ email, onClose }: { email: Email; onClose: () => void }) {
+  const date = email.sentAt ?? email.scheduledAt;
+  return <div className="dialog-scrim" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="sender-dialog email-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="email-detail-title"><button type="button" className="dialog-close" onClick={onClose} aria-label="Close email details">×</button><span className="eyebrow">{email.status === 'SENT' ? 'SENT MESSAGE' : 'SCHEDULED MESSAGE'}</span><h2 id="email-detail-title">{email.subject}</h2><dl className="email-detail-meta"><div><dt>To</dt><dd>{email.recipient}</dd></div><div><dt>Status</dt><dd>{email.status.toLowerCase()}</dd></div><div><dt>{email.sentAt ? 'Sent' : 'Scheduled'}</dt><dd>{new Date(date).toLocaleString()}</dd></div></dl><div className="email-detail-body">{email.body}</div>{email.previewUrl && <a className="email-preview-link" href={email.previewUrl} target="_blank" rel="noreferrer">Open Ethereal preview ↗</a>}</section></div>;
 }
 
 function Compose({ senders, onBack, onDone, onAddSender }: { senders: Sender[]; onBack: () => void; onDone: (message: string) => void; onAddSender: () => void }) {

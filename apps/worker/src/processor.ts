@@ -41,9 +41,9 @@ export async function processEmail(job: Job<EmailJobData>, token?: string) {
       messageId: `<${email.id}@reachinbox.local>`
     });
     const sentAt = new Date();
-    await prisma.scheduledEmail.update({ where: { id: email.id }, data: { status: 'SENT', sentAt, failureReason: null } });
-    console.info(JSON.stringify({ event: 'EMAIL_SENT', jobId: job.id, emailId: email.id, campaignId: email.campaignId, senderId: email.senderId, recipient: email.recipient }));
     const preview = nodemailer.getTestMessageUrl(info);
+    await prisma.scheduledEmail.update({ where: { id: email.id }, data: { status: 'SENT', sentAt, failureReason: null, previewUrl: preview || null } });
+    console.info(JSON.stringify({ event: 'EMAIL_SENT', jobId: job.id, emailId: email.id, campaignId: email.campaignId, senderId: email.senderId, recipient: email.recipient }));
     if (preview) console.info(`Ethereal preview: ${preview}`);
     await elastic.index({ index: config.elasticIndex, id: email.id, document: { id: email.id, tenantId: email.tenantId, recipient: email.recipient, subject: email.subject, body: email.body, status: 'SENT', scheduledAt: email.scheduledAt.toISOString(), sentAt: sentAt.toISOString(), senderId: email.senderId, campaignId: email.campaignId } }).catch(error => console.warn('Elasticsearch indexing deferred:', error instanceof Error ? error.message : error));
     await prisma.emailCampaign.updateMany({ where: { id: email.campaignId, emails: { none: { status: { in: ['SCHEDULED','PROCESSING'] } } } }, data: { status: 'COMPLETED' } });
