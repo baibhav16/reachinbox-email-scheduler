@@ -76,6 +76,7 @@ model EmailCampaign {
   tenantId    String
   subject     String
   body        String
+  htmlBody    String        @default("")
   startTime   DateTime
   delayMs     Int
   hourlyLimit Int?
@@ -87,7 +88,19 @@ model EmailCampaign {
   tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   sender      Sender        @relation(fields: [senderId], references: [id], onDelete: Restrict)
   emails      ScheduledEmail[]
+  attachments EmailAttachment[]
   @@index([tenantId, createdAt])
+}
+
+model EmailAttachment {
+  id             String       @id @default(cuid())
+  campaignId     String
+  fileName       String
+  contentType    String
+  contentBase64  String       @db.Text
+  size           Int
+  campaign       EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  @@index([campaignId])
 }
 
 model ScheduledEmail {

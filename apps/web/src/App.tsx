@@ -3,13 +3,44 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiOrigin, request } from './api';
 
 type User = { id: string; name: string; email: string; avatarUrl?: string | null };
-type Email = { id: string; recipient: string; subject: string; body: string; scheduledAt: string; sentAt?: string | null; status: string; previewUrl?: string | null };
+type Email = { id: string; recipient: string; subject: string; body: string; scheduledAt: string; sentAt?: string | null; status: string; previewUrl?: string | null; sender?: { name: string; email: string }; campaign?: { htmlBody: string; attachments: EmailAttachmentMetadata[] } };
 type Sender = { id: string; name: string; email: string; smtpHost: string; smtpPort: number; hourlyLimit?: number | null; isActive: boolean };
+type ImageAttachment = { id?: string; fileName: string; contentType: string; contentBase64: string; size: number };
+type EmailAttachmentMetadata = Omit<ImageAttachment, 'contentBase64'>;
 type Me = { user: User; tenant: { id: string; name: string } };
 const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 function findEmails(text: string) { return [...new Set(text.match(emailRegex)?.map(x => x.toLowerCase()) ?? [])]; }
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase(); }
 function Icon({ children }: { children: string }) { return <span className="icon" aria-hidden="true">{children}</span>; }
+function UserAvatar({ user, className }: { user: User; className: string }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [user.avatarUrl]);
+  if (user.avatarUrl && !imageFailed) return <img className={className} src={user.avatarUrl} alt="" onError={() => setImageFailed(true)}/>;
+  return <span className={`${className} user-avatar-fallback`}>{initials(user.name)}</span>;
+}
+function encodeBase64(bytes: Uint8Array) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
+function sanitizeEmailHtml(input: string) {
+  const document = new DOMParser().parseFromString(input, 'text/html');
+  const allowed = new Set(['A', 'B', 'BLOCKQUOTE', 'BR', 'DIV', 'EM', 'I', 'LI', 'OL', 'P', 'STRONG', 'U', 'UL']);
+  const clean = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (!(node instanceof HTMLElement)) return [...node.childNodes].map(clean).join('');
+    const children = [...node.childNodes].map(clean).join('');
+    if (!allowed.has(node.tagName)) return children;
+    if (node.tagName === 'BR') return '<br>';
+    if (node.tagName === 'A') {
+      const href = node.getAttribute('href') ?? '';
+      if (/^(https?:|mailto:)/i.test(href)) return `<a href="${href.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" rel="noopener noreferrer">${children}</a>`;
+    }
+    const tag = node.tagName.toLowerCase();
+    return `<${tag}>${children}</${tag}>`;
+  };
+  return [...document.body.childNodes].map(clean).join('');
+}
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -40,11 +71,11 @@ export default function App() {
   const listError = search.trim() ? searchQuery.error : view === 'sent' ? sent.error : scheduled.error;
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['emails'] }); void queryClient.invalidateQueries({ queryKey: ['search'] }); };
 
-  return <div className="shell">
+  return <div className={`shell ${selectedEmail ? 'email-open' : ''}`}>
     <aside className="sidebar">
-      <div className="brand">ONB<span>·</span></div>
+      <div className="brand">Reach Inbox<span>·</span></div>
       <button className="profile" onClick={() => setMenuOpen(v => !v)}>
-        {user.avatarUrl ? <img src={user.avatarUrl} alt=""/> : <span className="avatar">{initials(user.name)}</span>}
+        <UserAvatar user={user} className="profile-user-avatar"/>
         <span className="profile-copy"><b>{user.name}</b><small>{user.email}</small></span><span className="chevron">⌄</span>
       </button>
       {menuOpen && <div className="profile-menu"><div className="menu-meta">{user.email}</div><button onClick={() => { setSenderOpen(true); setMenuOpen(false); }}>Sender settings</button><a href={`${apiOrigin}/admin/queues`} target="_blank" rel="noreferrer">Queue dashboard ↗</a><button className="logout" onClick={() => logout.mutate()}>Log out</button></div>}
@@ -57,7 +88,7 @@ export default function App() {
       <div className="sidebar-bottom"><span className="status-dot"/> Scheduler ready</div>
     </aside>
     <main className="main-pane">
-      {view === 'compose' ? <Compose senders={senders.data?.senders ?? []} onBack={() => setView('scheduled')} onDone={(message) => { setView('scheduled'); setToast(message); refresh(); }} onAddSender={() => setSenderOpen(true)}/> : <>
+      {selectedEmail ? <EmailReader email={selectedEmail} currentUser={user} onBack={() => setSelectedEmail(null)}/> : view === 'compose' ? <Compose senders={senders.data?.senders ?? []} onBack={() => setView('scheduled')} onDone={(message) => { setView('scheduled'); setToast(message); refresh(); }} onAddSender={() => setSenderOpen(true)}/> : <>
         <header className="toolbar">
           <label className="search-box"><Icon>⌕</Icon><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search" aria-label="Search scheduled and sent emails"/>{search && <button onClick={() => setSearch('')} aria-label="Clear search">×</button>}</label>
           <div className="toolbar-actions"><button className="icon-button" title="Filter"><Icon>▽</Icon></button><button className="icon-button" title="Refresh" onClick={refresh}><Icon>↻</Icon></button><button className="new-email" onClick={() => setView('compose')}>＋ <span>Compose</span></button></div>
@@ -67,7 +98,6 @@ export default function App() {
       </>}
     </main>
     {senderOpen && <SenderDialog onClose={() => setSenderOpen(false)} onSaved={async () => { setSenderOpen(false); await queryClient.invalidateQueries({ queryKey: ['senders'] }); setToast('Sender added.'); }}/>} 
-    {selectedEmail && <EmailDialog email={selectedEmail} onClose={() => setSelectedEmail(null)}/>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
@@ -87,37 +117,94 @@ function EmailRow({ email, onOpen }: { email: Email; onOpen: () => void }) {
   return <article className="email-row" role="button" tabIndex={0} onClick={onOpen} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(); } }}><div className="row-recipient">To: <strong>{email.recipient}</strong></div><span className={`status-pill ${email.status.toLowerCase()}`}>{email.status === 'SCHEDULED' ? `◷ ${new Date(date).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : email.status.toLowerCase()}</span><div className="row-subject"><b>{email.subject}</b><span> – {email.body.slice(0, 105).replace(/\s+/g, ' ')}</span></div><span className="star-button" aria-hidden="true">↗</span></article>;
 }
 
-function EmailDialog({ email, onClose }: { email: Email; onClose: () => void }) {
+function ReaderIcon({ name }: { name: 'back' | 'star' | 'archive' | 'delete' }) {
+  const paths = {
+    back: <path d="M19 12H5m7 7-7-7 7-7"/>,
+    star: <path d="m12 3 2.75 5.57 6.15.9-4.45 4.33 1.05 6.12L12 17.03l-5.5 2.89 1.05-6.12L3.1 9.47l6.15-.9L12 3Z"/>,
+    archive: <><path d="M4 4h16v4H4zM5 8v12h14V8M9 12h6"/><path d="M4 4h16v4H4z"/></>,
+    delete: <><path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></>
+  };
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+}
+
+function EmailReader({ email, currentUser, onBack }: { email: Email; currentUser: User; onBack: () => void }) {
   const date = email.sentAt ?? email.scheduledAt;
-  return <div className="dialog-scrim" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="sender-dialog email-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="email-detail-title"><button type="button" className="dialog-close" onClick={onClose} aria-label="Close email details">×</button><span className="eyebrow">{email.status === 'SENT' ? 'SENT MESSAGE' : 'SCHEDULED MESSAGE'}</span><h2 id="email-detail-title">{email.subject}</h2><dl className="email-detail-meta"><div><dt>To</dt><dd>{email.recipient}</dd></div><div><dt>Status</dt><dd>{email.status.toLowerCase()}</dd></div><div><dt>{email.sentAt ? 'Sent' : 'Scheduled'}</dt><dd>{new Date(date).toLocaleString()}</dd></div></dl><div className="email-detail-body">{email.body}</div>{email.previewUrl && <a className="email-preview-link" href={email.previewUrl} target="_blank" rel="noreferrer">Open Ethereal preview ↗</a>}</section></div>;
+  const sender = email.sender ?? { name: 'ReachInbox sender', email: 'Sender unavailable' };
+  const attachmentQuery = useQuery({ queryKey: ['email-attachments', email.id], queryFn: () => request<{ attachments: ImageAttachment[] }>(`/api/emails/${email.id}/attachments`), enabled: (email.campaign?.attachments.length ?? 0) > 0 });
+  const attachments = attachmentQuery.data?.attachments ?? [];
+  const recipientLabel = email.recipient.toLowerCase() === currentUser.email.toLowerCase() ? 'me' : email.recipient;
+  return <section className="email-reader" aria-labelledby="email-detail-title">
+    <header className="reader-toolbar">
+      <button type="button" className="reader-back" onClick={onBack} aria-label="Back to emails"><ReaderIcon name="back"/></button>
+      <h1 id="email-detail-title" title={email.subject}>{email.subject}</h1>
+      <div className="reader-actions" aria-label="Message actions">
+        <button type="button" className="reader-action" disabled aria-label="Star message" title="Star message (unavailable)"><ReaderIcon name="star"/></button>
+        <button type="button" className="reader-action" disabled aria-label="Archive message" title="Archive (unavailable)"><ReaderIcon name="archive"/></button>
+        <button type="button" className="reader-action" disabled aria-label="Delete message" title="Delete (unavailable)"><ReaderIcon name="delete"/></button>
+        <span className={`reader-status ${email.status.toLowerCase()}`}>{email.status.toLowerCase()}</span>
+        <UserAvatar user={currentUser} className="reader-user-avatar"/>
+      </div>
+    </header>
+    <div className="reader-content-column">
+      <div className="message-sender">
+        <span className="sender-avatar">{initials(sender.name)}</span>
+        <div className="sender-identity">
+          <div className="sender-primary"><b>{sender.name}</b><span>&lt;{sender.email}&gt;</span></div>
+          <div className="sender-recipient">to {recipientLabel}<span aria-hidden="true">⌄</span></div>
+        </div>
+        <time>{new Date(date).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</time>
+      </div>
+      <article className="message-content" dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(email.campaign?.htmlBody || email.body.replace(/\n/g, '<br>')) }}/>
+      {attachments.length > 0 && <div className="message-attachments">{attachments.map((attachment, index) => <a className="message-attachment" key={attachment.id ?? `${attachment.fileName}-${index}`} href={`data:${attachment.contentType};base64,${attachment.contentBase64}`} download={attachment.fileName}><img src={`data:${attachment.contentType};base64,${attachment.contentBase64}`} alt=""/><span>{attachment.fileName}</span><small>{(attachment.size / 1_000_000).toFixed(1)} MB</small></a>)}</div>}
+      {email.previewUrl && <a className="email-preview-link" href={email.previewUrl} target="_blank" rel="noreferrer">Open Ethereal preview ↗</a>}
+    </div>
+  </section>;
 }
 
 function Compose({ senders, onBack, onDone, onAddSender }: { senders: Sender[]; onBack: () => void; onDone: (message: string) => void; onAddSender: () => void }) {
   const [recipientText, setRecipientText] = useState(''); const [subject, setSubject] = useState(''); const [body, setBody] = useState(''); const [clientError, setClientError] = useState('');
   const [startTime, setStartTime] = useState(() => new Date(Date.now() + 60_000 - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
   const [delaySeconds, setDelaySeconds] = useState('2'); const [hourlyLimit, setHourlyLimit] = useState('200'); const [senderId, setSenderId] = useState(senders[0]?.id ?? '');
-  const [schedulePanel, setSchedulePanel] = useState(false); const fileRef = useRef<HTMLInputElement>(null);
+  const [schedulePanel, setSchedulePanel] = useState(false); const [scheduleSelected, setScheduleSelected] = useState(false); const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null); const imageRef = useRef<HTMLInputElement>(null); const editorRef = useRef<HTMLDivElement>(null);
   const recipients = useMemo(() => findEmails(recipientText), [recipientText]);
   useEffect(() => { if (!senderId && senders[0]) setSenderId(senders[0].id); }, [senders, senderId]);
-  const mutation = useMutation({ mutationFn: () => request<{ count: number }>('/api/emails/schedule', { method: 'POST', body: JSON.stringify({ recipients, recipientText, subject, body, startTime: new Date(startTime).toISOString(), delayMs: Math.round(Number(delaySeconds || 0) * 1000), hourlyLimit: Number(hourlyLimit) || undefined, senderId }) }), onSuccess: data => onDone(`${data.count} email${data.count === 1 ? '' : 's'} scheduled.`) });
-  const submit = (event: FormEvent) => { event.preventDefault(); setClientError(''); if (!recipients.length) { setClientError('Add or upload at least one valid email address.'); return; } if (!senderId) { setClientError('Add an SMTP sender before scheduling.'); return; } mutation.mutate(); };
+  const mutation = useMutation({ mutationFn: () => request<{ count: number }>('/api/emails/schedule', { method: 'POST', body: JSON.stringify({ recipients, recipientText, subject, body, htmlBody: sanitizeEmailHtml(editorRef.current?.innerHTML ?? ''), attachments, startTime: (scheduleSelected ? new Date(startTime) : new Date()).toISOString(), delayMs: Math.round(Number(delaySeconds || 0) * 1000), hourlyLimit: Number(hourlyLimit) || undefined, senderId }) }), onSuccess: data => onDone(`${data.count} email${data.count === 1 ? '' : 's'} ${scheduleSelected ? 'scheduled' : 'queued to send'}.`) });
+  const submit = (event: FormEvent) => { event.preventDefault(); setClientError(''); if (!recipients.length) { setClientError('Add or upload at least one valid email address.'); return; } if (!senderId) { setClientError('Add an SMTP sender before scheduling.'); return; } if (!body.trim()) { setClientError('Write a message before sending.'); return; } mutation.mutate(); };
   const upload = async (file?: File) => { if (!file) return; const text = await file.text(); setRecipientText(prev => `${prev}\n${text}`); };
+  const uploadImages = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const selected = [...files];
+    if (selected.some(file => !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type))) { setClientError('Attach JPEG, PNG, GIF, or WebP images only.'); return; }
+    if (selected.some(file => file.size > 6_000_000)) { setClientError('Each image must be 6 MB or smaller.'); return; }
+    if (attachments.reduce((total, item) => total + item.size, 0) + selected.reduce((total, file) => total + file.size, 0) > 8_000_000) { setClientError('Keep image attachments under 8 MB total.'); return; }
+    const encoded = await Promise.all(selected.map(async file => ({ fileName: file.name, contentType: file.type, contentBase64: encodeBase64(new Uint8Array(await file.arrayBuffer())), size: file.size })));
+    setAttachments(current => [...current, ...encoded]); setClientError('');
+  };
+  const setTomorrowAt = (hour?: number) => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (hour !== undefined) tomorrow.setHours(hour, 0, 0, 0);
+    setStartTime(new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
+  };
   const pickedSender = senders.find(x => x.id === senderId);
   return <form className="compose-page" onSubmit={submit}>
-    <header className="compose-header"><button type="button" className="back-button" onClick={onBack}>← <span>Compose New Email</span></button><div className="compose-tools"><button type="button" className="icon-button attach" title="Upload recipient list" onClick={() => fileRef.current?.click()}>⌁</button><button type="button" className="icon-button attach" title="Schedule send" onClick={() => setSchedulePanel(true)}>◷</button><button className="send-button" type="submit" disabled={mutation.isPending}>{mutation.isPending ? 'Scheduling…' : 'Schedule'}</button></div></header>
+    <header className="compose-header"><button type="button" className="back-button" onClick={onBack}>← <span>Compose New Email</span></button><div className="compose-tools"><button type="button" className="icon-button attach" title="Attach photos" aria-label="Attach photos" onClick={() => imageRef.current?.click()}>📎</button><button type="button" className="icon-button attach" title="Schedule send" aria-label="Schedule send" onClick={() => setSchedulePanel(true)}>◷</button><button className="send-button" type="submit" disabled={mutation.isPending}>{mutation.isPending ? 'Sending…' : 'Send'}</button></div></header>
     <input ref={fileRef} hidden type="file" accept=".csv,.txt,text/plain,text/csv" onChange={e => void upload(e.target.files?.[0])}/>
+    <input ref={imageRef} hidden type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple onChange={e => { void uploadImages(e.target.files); e.currentTarget.value = ''; }}/>
     <section className="compose-fields">
       <div className="field-line"><label>From</label><div className="sender-select-wrap"><select value={senderId} onChange={e => setSenderId(e.target.value)} aria-label="Sender">{senders.map(sender => <option key={sender.id} value={sender.id}>{sender.email}</option>)}</select>{!senders.length && <button type="button" className="text-link" onClick={onAddSender}>Add sender</button>}</div></div>
       <div className="field-line recipient-line"><label>To</label><div className="recipient-input-wrap"><div className="chips">{recipients.slice(0, 5).map(x => <span className="chip" key={x}>{x}<button type="button" aria-label={`Remove ${x}`} onClick={() => setRecipientText(current => current.replace(x, ''))}>×</button></span>)}{recipients.length > 5 && <span className="chip more">+{recipients.length - 5}</span>}<textarea value={recipientText} onChange={e => setRecipientText(e.target.value)} placeholder="recipient@example.com, or upload a list" aria-label="Recipients" rows={1}/></div><button type="button" className="upload-link" onClick={() => fileRef.current?.click()}>↥ <span>Upload List</span></button></div></div>
       <div className="recipient-count">{recipients.length ? `${recipients.length} email${recipients.length === 1 ? '' : 's'} detected` : 'Paste addresses or upload a CSV / text file'}</div>
       <div className="field-line"><label>Subject</label><input className="subject-input" value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" required maxLength={998}/></div>
-      <div className="schedule-controls"><label>Delay between emails <span><input type="number" min="0" max="86400" value={delaySeconds} onChange={e => setDelaySeconds(e.target.value)}/><small>sec</small></span></label><label>Hourly limit <span><input type="number" min="1" max="10000" value={hourlyLimit} onChange={e => setHourlyLimit(e.target.value)}/><small>/ hr</small></span></label><label className="start-control">Start time <span><input type="datetime-local" value={startTime} onChange={e => setStartTime(e.target.value)} required/></span></label></div>
-      <div className="editor"><div className="editor-placeholder">Your message…</div><div className="editor-toolbar"><button type="button">↶</button><button type="button">↷</button><i/><button type="button">T⌄</button><i/><button type="button"><b>B</b></button><button type="button"><em>I</em></button><button type="button"><u>U</u></button><i/><button type="button">≡</button><button type="button">☷</button><button type="button">❝</button><button type="button">▤</button><button type="button">S̶</button></div><textarea className="body-input" value={body} onChange={e => setBody(e.target.value)} aria-label="Email body" required/></div>
+      <div className="schedule-controls"><label>Delay between emails <span><input type="number" min="0" max="86400" value={delaySeconds} onChange={e => setDelaySeconds(e.target.value)}/><small>sec</small></span></label><label>Hourly limit <span><input type="number" min="1" max="10000" value={hourlyLimit} onChange={e => setHourlyLimit(e.target.value)}/><small>/ hr</small></span></label></div>
+      {attachments.length > 0 && <div className="compose-attachments">{attachments.map((attachment, index) => <div className="compose-attachment" key={`${attachment.fileName}-${index}`}><img src={`data:${attachment.contentType};base64,${attachment.contentBase64}`} alt=""/><span>{attachment.fileName}</span><button type="button" aria-label={`Remove ${attachment.fileName}`} onClick={() => setAttachments(current => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}</div>}
+      <div className="editor"><div className="editor-toolbar"><button type="button" title="Undo" onMouseDown={e => e.preventDefault()} onClick={() => document.execCommand('undo')}>↶</button><button type="button" title="Redo" onMouseDown={e => e.preventDefault()} onClick={() => document.execCommand('redo')}>↷</button><i/><button type="button" title="Bold" onMouseDown={e => e.preventDefault()} onClick={() => { editorRef.current?.focus(); document.execCommand('bold'); }}><b>B</b></button><button type="button" title="Italic" onMouseDown={e => e.preventDefault()} onClick={() => { editorRef.current?.focus(); document.execCommand('italic'); }}><em>I</em></button><button type="button" title="Underline" onMouseDown={e => e.preventDefault()} onClick={() => { editorRef.current?.focus(); document.execCommand('underline'); }}><u>U</u></button><i/><button type="button" title="Bulleted list" onMouseDown={e => e.preventDefault()} onClick={() => { editorRef.current?.focus(); document.execCommand('insertUnorderedList'); }}>☷</button><button type="button" title="Numbered list" onMouseDown={e => e.preventDefault()} onClick={() => { editorRef.current?.focus(); document.execCommand('insertOrderedList'); }}>1.</button><button type="button" title="Quote" onMouseDown={e => e.preventDefault()} onClick={() => { editorRef.current?.focus(); document.execCommand('formatBlock', false, 'blockquote'); }}>❝</button><button type="button" title="Clear formatting" onMouseDown={e => e.preventDefault()} onClick={() => { editorRef.current?.focus(); document.execCommand('removeFormat'); }}>Tx</button></div><div ref={editorRef} className="body-input rich-editor" contentEditable role="textbox" aria-label="Email body" aria-multiline="true" data-placeholder="Your message…" onInput={e => setBody(e.currentTarget.innerText)} onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.execCommand('bold'); } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u') { e.preventDefault(); document.execCommand('underline'); } }}/></div>
       {(clientError || mutation.isError) && <div className="form-error" role="alert">{clientError || mutation.error?.message || 'Could not schedule this campaign.'}</div>}
       {mutation.isSuccess && <div className="form-success">Campaign queued successfully.</div>}
       {pickedSender && <div className="sender-note">Sending from <b>{pickedSender.email}</b>{pickedSender.hourlyLimit ? ` · Sender cap ${pickedSender.hourlyLimit}/hr` : ''}. Server minimum spacing is enforced across workers.</div>}
     </section>
-    {schedulePanel && <div className="panel-scrim" onMouseDown={e => { if (e.target === e.currentTarget) setSchedulePanel(false); }}><div className="schedule-panel"><h3>Send Later</h3><label>Pick date &amp; time<input type="datetime-local" value={startTime} onChange={e => setStartTime(e.target.value)}/></label><button onClick={() => setStartTime(new Date(Date.now() + 24*3600_000 - new Date().getTimezoneOffset()*60_000).toISOString().slice(0,16))}>Tomorrow</button><button onClick={() => setStartTime(new Date(new Date().setHours(10,0,0,0) - new Date().getTimezoneOffset()*60_000).toISOString().slice(0,16))}>Tomorrow, 10:00 AM</button><div className="panel-actions"><button type="button" onClick={() => setSchedulePanel(false)}>Cancel</button><button type="button" className="outline-green" onClick={() => setSchedulePanel(false)}>Done</button></div></div></div>}
+    {schedulePanel && <div className="panel-scrim" onMouseDown={e => { if (e.target === e.currentTarget) setSchedulePanel(false); }}><div className="schedule-panel"><h3>Send Later</h3><label>Pick date &amp; time<input type="datetime-local" value={startTime} onChange={e => setStartTime(e.target.value)}/></label><button type="button" onClick={() => setTomorrowAt()}>Tomorrow</button><button type="button" onClick={() => setTomorrowAt(10)}>Tomorrow, 10:00 AM</button><button type="button" onClick={() => setTomorrowAt(11)}>Tomorrow, 11:00 AM</button><button type="button" onClick={() => setTomorrowAt(15)}>Tomorrow, 3:00 PM</button><div className="panel-actions"><button type="button" onClick={() => setSchedulePanel(false)}>Cancel</button><button type="button" className="outline-green" onClick={() => { setScheduleSelected(true); setSchedulePanel(false); }}>Done</button></div></div></div>}
   </form>;
 }
 

@@ -6,6 +6,7 @@ A full stack scheduled email application built around persistent BullMQ delayed 
 
 - Google OAuth login with signed, HTTP-only session cookies.
 - Campaign scheduling with recipient paste or CSV/text upload, start time, per-campaign spacing, and hourly cap.
+- Rich-text message content and image attachments (JPEG, PNG, GIF, and WebP) with downloadable previews in the sent-message view.
 - Tenant-scoped SMTP senders. SMTP passwords and Slack bot tokens are encrypted at rest with AES-256-GCM.
 - PostgreSQL campaign and message records with deterministic idempotency keys.
 - BullMQ delayed jobs, separate configurable worker concurrency, restart reconciliation, retries, and graceful shutdown.
@@ -55,7 +56,7 @@ reference/      Supplied assignment PDF and UI screenshots
 ## Prerequisites
 
 - Node.js 22+ and npm 10+.
-- Docker Desktop or Docker Engine with Compose v2 for local PostgreSQL, Redis, and Elasticsearch. Docker was not present in the implementation environment, so the Compose stack has not been started or verified here.
+- Docker Desktop or Docker Engine with Compose for local PostgreSQL, Redis, and Elasticsearch.
 - Google OAuth web application credentials for the real login flow.
 - Slack app OAuth credentials to connect a workspace and receive live cap notifications.
 - Internet access to create an Ethereal test account automatically, or Ethereal SMTP credentials.
@@ -70,7 +71,7 @@ npx prisma generate
 npx prisma migrate dev
 ```
 
-Edit `.env` before logging in. Google OAuth and Slack OAuth remain unavailable until their real client IDs and secrets are supplied. If Ethereal credentials are omitted, the first Google-authenticated user provisions a real Ethereal test account through Nodemailer; if account creation cannot reach Ethereal, add a sender from the UI.
+Edit `.env` before logging in. Replace the Google and Slack OAuth placeholders with your own credentials and callback URLs. If Ethereal credentials are omitted, the first Google-authenticated user provisions a real Ethereal test account through Nodemailer; if account creation cannot reach Ethereal, add a sender from the UI.
 
 ## Environment variables
 
@@ -108,7 +109,7 @@ npm run dev:worker
 npm run dev:web
 ```
 
-The web UI is at `http://localhost:5173`, API health at `http://localhost:4000/health`, and Bull Board at `http://localhost:4000/admin/queues` (HTTP Basic Auth from `QUEUE_DASHBOARD_USER` / `QUEUE_DASHBOARD_PASSWORD`).
+The web UI is at `http://localhost:5173`, API health at `http://localhost:4000/health`, and Bull Board at `http://localhost:4000/admin/queues`. Bull Board uses the same signed Google session as the web app; open it in a browser where you are signed in (the session lasts seven days).
 
 ## Scheduling flow
 
@@ -143,7 +144,7 @@ npm test
 npm run build
 ```
 
-The parser has focused unit coverage. Full end-to-end delivery, restart, OAuth, Slack, and rate-limit verification needs PostgreSQL, Redis, Elasticsearch, real OAuth settings, and Ethereal access. The current environment had no Docker command and no OAuth credentials, so those external flows are not reported as verified.
+The test suite contains focused recipient-parser tests. Typecheck, lint, and production build pass in the current workspace. Runtime verification has confirmed the Compose services, database migrations, Google sign-in, and an Ethereal test send with a working preview link. Throughput/rate-cap behavior, a live Slack rate-limit alert, restart recovery with a pending email, live Elasticsearch queries, and the authenticated compose flow still need end-to-end demonstration; do not claim those checks passed until they are shown.
 
 ## Troubleshooting
 
@@ -170,7 +171,7 @@ Follow the five-minute run-through in [docs/demo-script.md](docs/demo-script.md)
 | Sender concurrency, spacing, hourly caps | Redis atomic reservation Lua | `apps/worker/src/rate-limit.ts` |
 | Idempotency | Campaign key, unique email key, status checks, lock | `prisma/schema.prisma`, `apps/worker/src/processor.ts` |
 | Elasticsearch search | Tenant-filtered search API and index mappings | `apps/api/src/config/elasticsearch.ts`, `apps/api/src/routes/search.routes.ts` |
-| Live queue dashboard | Bull Board with Basic Auth | `/admin/queues`, `apps/api/src/app.ts` |
+| Live queue dashboard | Bull Board with the signed Google session | `/admin/queues`, `apps/api/src/app.ts` |
 | Google OAuth and logout | Authorization code flow, secure cookie | `apps/api/src/routes/auth.routes.ts` |
 | Slack OAuth notification | Workspace install, encrypted token, cap alert | `apps/api/src/routes/slack.routes.ts`, `apps/worker/src/slack.ts` |
 | Compose, recipient import, scheduled/sent lists | React dashboard and form | `apps/web/src/App.tsx` |
@@ -178,4 +179,4 @@ Follow the five-minute run-through in [docs/demo-script.md](docs/demo-script.md)
 
 ## Submission note
 
-The project is prepared locally. No GitHub repository is configured, and no repository was created or pushed.
+The private repository is [github.com/baibhav16/reachinbox-email-scheduler](https://github.com/baibhav16/reachinbox-email-scheduler). Before handing it in, grant repository access to **Mitrajit** and **Yadav036** as required by the assignment, and include a demo video no longer than five minutes. A suggested run-through is in [docs/demo-script.md](docs/demo-script.md).

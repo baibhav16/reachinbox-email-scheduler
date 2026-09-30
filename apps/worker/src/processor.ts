@@ -15,7 +15,7 @@ const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
 const elastic = new Client({ node: config.elasticUrl });
 
 export async function processEmail(job: Job<EmailJobData>, token?: string) {
-  const email = await prisma.scheduledEmail.findUnique({ where: { id: job.data.emailId }, include: { sender: true, campaign: true } });
+  const email = await prisma.scheduledEmail.findUnique({ where: { id: job.data.emailId }, include: { sender: true, campaign: { include: { attachments: true } } } });
   if (!email || email.status === 'SENT' || email.status === 'FAILED') return;
   const lockToken = `${job.id}:${Date.now()}:${Math.random()}`;
   const locked = await redis.set(`email-lock:${email.id}`, lockToken, 'EX', 300, 'NX');
@@ -38,6 +38,8 @@ export async function processEmail(job: Job<EmailJobData>, token?: string) {
     const transporter = createTransport({ host: email.sender.smtpHost, port: email.sender.smtpPort, secure: email.sender.smtpPort === 465, auth: { user: email.sender.smtpUser, pass: decryptSecret(email.sender.smtpPassword) } });
     const info = await transporter.sendMail({
       from: { name: email.sender.name, address: email.sender.email }, to: email.recipient, subject: email.subject, text: email.body,
+      ...(email.campaign.htmlBody ? { html: email.campaign.htmlBody } : {}),
+      attachments: email.campaign.attachments.map(attachment => ({ filename: attachment.fileName, content: Buffer.from(attachment.contentBase64, 'base64'), contentType: attachment.contentType })),
       messageId: `<${email.id}@reachinbox.local>`
     });
     const sentAt = new Date();

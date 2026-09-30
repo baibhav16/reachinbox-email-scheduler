@@ -18,7 +18,6 @@ const schema = z.object({
   ETHEREAL_HOST: z.string().default('smtp.ethereal.email'), ETHEREAL_PORT: z.coerce.number().default(587),
   ETHEREAL_USER: z.string().optional().default(''), ETHEREAL_PASSWORD: z.string().optional().default(''),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5), MAX_EMAILS_PER_HOUR_PER_SENDER: z.coerce.number().int().positive().default(200),
-  MIN_EMAIL_DELAY_MS: z.coerce.number().int().positive().default(2000), SMTP_ENCRYPTION_KEY: z.string().optional().default(''),
-  QUEUE_DASHBOARD_USER: z.string().default('admin'), QUEUE_DASHBOARD_PASSWORD: z.string().default('change-me')
+  MIN_EMAIL_DELAY_MS: z.coerce.number().int().positive().default(2000), SMTP_ENCRYPTION_KEY: z.string().optional().default('')
 });
 export const env = schema.parse(process.env);

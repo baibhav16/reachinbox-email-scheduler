@@ -20,14 +20,23 @@ async function enqueueEmails(emails: { id: string; scheduledAt: Date; tenantId: 
 }
 const scheduleSchema = z.object({
   recipients: z.array(z.string().email()).optional(), recipientText: z.string().optional(), subject: z.string().min(1).max(998),
-  body: z.string().min(1).max(100_000), startTime: z.string().datetime(), delayMs: z.coerce.number().int().min(0).max(86_400_000),
+  body: z.string().min(1).max(100_000), htmlBody: z.string().max(500_000).optional(),
+  attachments: z.array(z.object({ fileName: z.string().min(1).max(255), contentType: z.string().regex(/^image\/(jpeg|png|gif|webp)$/), contentBase64: z.string().min(4).max(8_000_000), size: z.number().int().positive().max(6_000_000) })).max(8).default([]).refine(files => files.reduce((total, file) => total + file.size, 0) <= 8_000_000 && files.every(file => file.contentBase64.length === 4 * Math.ceil(file.size / 3))),
+  startTime: z.string().datetime(), delayMs: z.coerce.number().int().min(0).max(86_400_000),
   hourlyLimit: z.coerce.number().int().positive().optional(), senderId: z.string().min(1)
 });
 emailRoutes.get('/', async (_req, res, next) => {
   try {
     const status = typeof _req.query.status === 'string' ? _req.query.status.toUpperCase() : undefined;
-    const emails = await prisma.scheduledEmail.findMany({ where: { tenantId: res.locals.tenantId, ...(status && ['SCHEDULED','PROCESSING','SENT','FAILED'].includes(status) ? { status: status as 'SCHEDULED'|'PROCESSING'|'SENT'|'FAILED' } : {}) }, orderBy: [{ scheduledAt: 'desc' }], take: 500 });
+    const emails = await prisma.scheduledEmail.findMany({ where: { tenantId: res.locals.tenantId, ...(status && ['SCHEDULED','PROCESSING','SENT','FAILED'].includes(status) ? { status: status as 'SCHEDULED'|'PROCESSING'|'SENT'|'FAILED' } : {}) }, include: { sender: { select: { name: true, email: true } }, campaign: { select: { htmlBody: true, attachments: { select: { id: true, fileName: true, contentType: true, size: true } } } } }, orderBy: [{ scheduledAt: 'desc' }], take: 500 });
     res.json({ emails });
+  } catch (error) { next(error); }
+});
+emailRoutes.get('/:id/attachments', async (req, res, next) => {
+  try {
+    const email = await prisma.scheduledEmail.findFirst({ where: { id: req.params.id, tenantId: res.locals.tenantId }, select: { campaign: { select: { attachments: true } } } });
+    if (!email) { res.status(404).json({ error: 'Email not found.' }); return; }
+    res.json({ attachments: email.campaign.attachments });
   } catch (error) { next(error); }
 });
 emailRoutes.post('/parse', (req, res) => {
@@ -43,10 +52,11 @@ emailRoutes.post('/schedule', async (req, res, next) => {
     const sender = await prisma.sender.findFirst({ where: { id: input.senderId, tenantId: res.locals.tenantId, isActive: true } });
     if (!sender) { res.status(400).json({ error: 'Select an active sender in this workspace.' }); return; }
     const startTime = new Date(input.startTime);
-    const payloadKey = createHash('sha256').update(JSON.stringify({ tenantId: res.locals.tenantId, senderId: input.senderId, recipients: [...recipients].sort(), subject: input.subject, body: input.body, startTime: startTime.toISOString(), delayMs: input.delayMs, hourlyLimit: input.hourlyLimit ?? null })).digest('hex');
+    const payloadKey = createHash('sha256').update(JSON.stringify({ tenantId: res.locals.tenantId, senderId: input.senderId, recipients: [...recipients].sort(), subject: input.subject, body: input.body, htmlBody: input.htmlBody ?? '', attachments: input.attachments, startTime: startTime.toISOString(), delayMs: input.delayMs, hourlyLimit: input.hourlyLimit ?? null })).digest('hex');
     const campaign = await prisma.emailCampaign.upsert({ where: { idempotencyKey: payloadKey }, update: {}, create: {
-      idempotencyKey: payloadKey, tenantId: res.locals.tenantId, subject: input.subject, body: input.body, startTime, delayMs: input.delayMs,
+      idempotencyKey: payloadKey, tenantId: res.locals.tenantId, subject: input.subject, body: input.body, htmlBody: input.htmlBody ?? '', startTime, delayMs: input.delayMs,
       hourlyLimit: input.hourlyLimit, senderId: sender.id, createdBy: res.locals.userId,
+      attachments: { create: input.attachments },
       emails: { create: recipients.map((recipient, index) => ({
         tenantId: res.locals.tenantId, senderId: sender.id, recipient, subject: input.subject, body: input.body,
         scheduledAt: new Date(startTime.getTime() + index * input.delayMs), idempotencyKey: `${payloadKey}:${createHash('sha256').update(recipient).digest('hex')}`

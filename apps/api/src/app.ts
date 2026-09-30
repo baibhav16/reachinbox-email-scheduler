@@ -19,7 +19,7 @@ export const app = express();
 app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
 app.get('/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 app.use('/api/auth', authRoutes);
@@ -31,14 +31,7 @@ app.use('/api/search', requireAuth, searchRoutes);
 const boardAdapter = new ExpressAdapter();
 boardAdapter.setBasePath('/admin/queues');
 createBullBoard({ queues: [new BullMQAdapter(emailQueue)], serverAdapter: boardAdapter });
-app.use('/admin/queues', (req, res, next) => {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Basic ')) { res.setHeader('WWW-Authenticate', 'Basic realm="BullMQ dashboard"'); res.status(401).send('Authentication required'); return; }
-  const decoded = Buffer.from(auth.slice(6), 'base64').toString();
-  const [username, ...rest] = decoded.split(':'); const password = rest.join(':');
-  if (username !== env.QUEUE_DASHBOARD_USER || password !== env.QUEUE_DASHBOARD_PASSWORD) { res.status(401).send('Invalid credentials'); return; }
-  next();
-}, boardAdapter.getRouter());
+app.use('/admin/queues', requireAuth, boardAdapter.getRouter());
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err && typeof err === 'object' && 'issues' in err) { res.status(400).json({ error: 'Validation failed.', details: (err as { issues: unknown }).issues }); return; }
