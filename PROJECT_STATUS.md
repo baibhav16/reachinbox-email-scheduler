@@ -26,14 +26,18 @@ Updated: 2026-09-30
 - An authenticated API schedule flow produced a sent Ethereal test message; its preview page returned HTTP 200 and the message was indexed.
 - The login screen was visually checked at the assignment reference viewport. A sent-list screenshot was also reviewed during the UI work.
 - `/admin/queues` no longer returns a browser Basic Auth challenge; it requires the signed app session.
+- Render free API deployment is live at https://reachinbox-api-fmbl.onrender.com; `/health` returns HTTP 200. PostgreSQL migrations ran during service startup.
+- Vercel production is live at https://reachinbox-email-scheduler-five-nu.vercel.app; its same-origin `/api/auth/status` proxy returns HTTP 200 and confirms Google OAuth is configured.
+- Render has Google and Slack client credentials from the local environment, with production Vercel callback URLs configured. The callback URLs still need to be allowed in Google Cloud and Slack app settings.
+- The latest deployment build fix is committed and pushed as `3ee3008 fix: include build dependencies on Render`.
 - A private repository exists at https://github.com/baibhav16/reachinbox-email-scheduler.
 
 ## Deployment preparation
 
 - Added a free-tier Render Blueprint for the API, PostgreSQL, and Redis, with generated session/encryption secrets and Prisma deploy migrations. The free deployment omits the background worker, so queued email is not sent.
 - Added Vercel build configuration for the web app and a same-origin proxy to Render, including OAuth callback and Bull Board paths. Local Vite uses a matching API proxy.
-- The Vercel frontend is deployed. Render's free API/database/Redis resources are being provisioned; the current free setup cannot send scheduled email without a worker. Free PostgreSQL/Redis are temporary and Elasticsearch must be provided separately.
-- Production Google OAuth callback, Vercel web origin, Render API origin, provider secrets, and Elasticsearch endpoint must be entered in Render/Vercel/Google Cloud settings after provider URLs are assigned.
+- The Vercel frontend, Render API, free PostgreSQL, and free Redis are deployed. The current free setup cannot send scheduled email without a worker. Free PostgreSQL expires after 30 days, free Redis is non-persistent, the API may sleep, and Elasticsearch is not deployed; search/indexing is unavailable.
+- `RENDER_API_ORIGIN` is set in Vercel. `WEB_ORIGIN`, Render callback URLs, Google credentials, and Slack credentials are configured in Render. Still add the production Google and Slack callback URLs to each provider's allowed redirect URI list.
 
 ## Still needs end-to-end verification
 

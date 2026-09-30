@@ -77,13 +77,15 @@ Edit `.env` before logging in. Replace the Google and Slack OAuth placeholders w
 
 The repository includes a free-tier Render Blueprint in [`render.yaml`](render.yaml) for the API, PostgreSQL, and Redis, plus [`vercel.ts`](vercel.ts) for the Vite web app and same-origin forwarding to the API. The free Blueprint omits the background worker, so it does not send queued emails. Deploy Vercel first to get its URL, then Render, then redeploy Vercel with the Render URL:
 
+Current deployment: [Reach Inbox web app](https://reachinbox-email-scheduler-five-nu.vercel.app) and [Render API](https://reachinbox-api-fmbl.onrender.com). The web app's `/api/auth/status` route currently reaches the API successfully. Google and Slack credentials and callback URLs are configured in Render; add the callback URLs below to the corresponding provider consoles before signing in or connecting Slack.
+
 1. Import the repository in Vercel with the repository root as the project root and deploy once without `RENDER_API_ORIGIN`. Copy the assigned Vercel URL.
 2. In Render, create a new Blueprint from this GitHub repository. The API, database, and Redis use free demo plans. The Blueprint generates separate `JWT_SECRET` and `SMTP_ENCRYPTION_KEY` values and runs Prisma migrations when the API starts. When prompted, set `WEB_ORIGIN` to the Vercel origin, set Google client ID and secret, and set `GOOGLE_CALLBACK_URL` to `https://your-project.vercel.app/api/auth/google/callback`.
 3. In Vercel project settings, set `RENDER_API_ORIGIN` to the Render API origin, such as `https://reachinbox-api.onrender.com`, then redeploy. The Vercel rewrite keeps API, OAuth callback, session cookies, and Bull Board on the web origin.
 4. In Google Cloud Console, add the Vercel callback URL above to the OAuth client's authorized redirect URIs. If Slack is enabled, set the API's `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_CALLBACK_URL` to `https://your-project.vercel.app/api/slack/callback`, then add that callback in Slack's app settings.
 5. `ELASTICSEARCH_URL` defaults to localhost in the Blueprint. Set it on both Render API and worker to a reachable Elasticsearch deployment to enable search and email indexing; those features remain unavailable until then.
 
-The Blueprint's free Render API, PostgreSQL, and Key Value services are for a short demo: the API can sleep, free PostgreSQL expires after 30 days, free Key Value has no persistence, and there is no background worker to process queued emails. Render does not provision Elasticsearch in this Blueprint; connect a hosted Elasticsearch endpoint or leave search unavailable. Do not copy local `.env` values into source control; enter secrets in the provider dashboards.
+The Blueprint's free Render API, PostgreSQL, and Key Value services are for a short demo: the API can sleep, free PostgreSQL expires after 30 days, free Key Value has no persistence, and there is no background worker to process queued emails. This deployed free version can store schedules, but it will not send them. Render does not provision Elasticsearch in this Blueprint; search and indexing are unavailable until a hosted Elasticsearch endpoint is configured. Do not copy local `.env` values into source control; enter secrets in the provider dashboards.
 
 For local development, Vite now forwards `/api` and `/admin` requests to `http://localhost:4000`; no `VITE_API_URL` setting is needed.
 
@@ -104,14 +106,16 @@ No Gmail SMTP is used. A workspace receives an automatically provisioned Etherea
 Create a Google OAuth web application and set:
 
 - Authorized redirect URI: `http://localhost:4000/api/auth/google/callback`
+- Production authorized redirect URI: `https://reachinbox-email-scheduler-five-nu.vercel.app/api/auth/google/callback`
 - Authorized JavaScript origin: `http://localhost:5173`
+- Production authorized JavaScript origin: `https://reachinbox-email-scheduler-five-nu.vercel.app`
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`
 
 The implementation uses Google's OAuth authorization code flow and UserInfo endpoint. There is no local or mock login path.
 
 ## Slack OAuth setup
 
-Create a Slack app, add the redirect URI `http://localhost:4000/api/slack/callback`, and configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and the matching callback in `.env`. The app requests `chat:write` and `incoming-webhook`; grant a channel during installation so Slack returns the destination channel. The token is encrypted before it is stored. Disconnecting removes the tenant connection; a later OAuth reconnect takes effect without restarting the worker.
+Create a Slack app and add these redirect URIs: `http://localhost:4000/api/slack/callback` and `https://reachinbox-email-scheduler-five-nu.vercel.app/api/slack/callback`. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and the local callback in `.env`; production Slack credentials and callback are configured in Render. The app requests `chat:write` and `incoming-webhook`; grant a channel during installation so Slack returns the destination channel. The token is encrypted before it is stored. Disconnecting removes the tenant connection; a later OAuth reconnect takes effect without restarting the worker.
 
 ## Running the application
 
