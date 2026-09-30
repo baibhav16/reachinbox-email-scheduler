@@ -1,4 +1,6 @@
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+// Use same-origin requests. Vite proxies these locally, while Vercel forwards
+// them to the Render API. This also keeps OAuth/session cookies first-party.
+const API = import.meta.env.VITE_API_URL ?? '';
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API}${path}`, { ...init, credentials: 'include', headers: { ...(init.body ? { 'content-type': 'application/json' } : {}), ...init.headers } });
   if (!response.ok) {

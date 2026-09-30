@@ -28,6 +28,13 @@ Updated: 2026-09-30
 - `/admin/queues` no longer returns a browser Basic Auth challenge; it requires the signed app session.
 - A private repository exists at https://github.com/baibhav16/reachinbox-email-scheduler.
 
+## Deployment preparation
+
+- Added a Render Blueprint for the API, worker, PostgreSQL, and Redis, with generated session/encryption secrets and Prisma deploy migrations.
+- Added Vercel build configuration for the web app and a same-origin proxy to Render, including OAuth callback and Bull Board paths. Local Vite uses a matching API proxy.
+- Deployment is configured for Vercel plus a Render Blueprint and has not been provisioned. The Render worker uses a paid always-on instance; free API/PostgreSQL/Redis resources are temporary and unsuitable for reliable scheduled delivery. Elasticsearch must be provided separately.
+- Production Google OAuth callback, Vercel web origin, Render API origin, provider secrets, and Elasticsearch endpoint must be entered in Render/Vercel/Google Cloud settings after provider URLs are assigned.
+
 ## Still needs end-to-end verification
 
 - Sustained 1,000+ job load, cap behavior across worker instances, and ordering while jobs are rescheduled.

@@ -1,0 +1,81 @@
+databases:
+  - name: reachinbox-db
+    plan: free
+    region: singapore
+    databaseName: reachinbox
+    user: reachinbox
+
+envVarGroups:
+  - name: reachinbox-secrets
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SMTP_ENCRYPTION_KEY
+        generateValue: true
+
+services:
+  - type: keyvalue
+    name: reachinbox-redis
+    plan: free
+    region: singapore
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  - type: web
+    name: reachinbox-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npx prisma generate && npm run build --workspace @reachinbox/api
+    startCommand: npx prisma migrate deploy && node apps/api/dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: reachinbox-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: reachinbox-redis
+          type: keyvalue
+          property: connectionString
+      - key: WEB_ORIGIN
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+      - key: ELASTICSEARCH_URL
+        value: http://localhost:9200
+      - key: ELASTICSEARCH_INDEX
+        value: scheduled-emails
+      - fromGroup: reachinbox-secrets
+
+  - type: worker
+    name: reachinbox-worker
+    runtime: node
+    plan: 0.5c-512mb
+    region: singapore
+    buildCommand: npm ci && npx prisma generate && npm run build --workspace @reachinbox/worker
+    startCommand: node apps/worker/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: reachinbox-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: reachinbox-redis
+          type: keyvalue
+          property: connectionString
+      - key: ELASTICSEARCH_URL
+        value: http://localhost:9200
+      - key: ELASTICSEARCH_INDEX
+        value: scheduled-emails
+      - fromGroup: reachinbox-secrets
