@@ -10,3 +10,5 @@ coverage/
 .vite/
 .turbo/
 .local/
+
+.vercel

@@ -26,7 +26,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci && npx prisma generate && npm run build --workspace @reachinbox/api
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build --workspace @reachinbox/api
     startCommand: npx prisma migrate deploy && node apps/api/dist/server.js
     healthCheckPath: /health
     envVars:
