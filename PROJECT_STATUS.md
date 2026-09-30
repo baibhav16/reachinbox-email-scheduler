@@ -30,9 +30,9 @@ Updated: 2026-09-30
 
 ## Deployment preparation
 
-- Added a Render Blueprint for the API, worker, PostgreSQL, and Redis, with generated session/encryption secrets and Prisma deploy migrations.
+- Added a free-tier Render Blueprint for the API, PostgreSQL, and Redis, with generated session/encryption secrets and Prisma deploy migrations. The free deployment omits the background worker, so queued email is not sent.
 - Added Vercel build configuration for the web app and a same-origin proxy to Render, including OAuth callback and Bull Board paths. Local Vite uses a matching API proxy.
-- Deployment is configured for Vercel plus a Render Blueprint and has not been provisioned. The Render worker uses a paid always-on instance; free API/PostgreSQL/Redis resources are temporary and unsuitable for reliable scheduled delivery. Elasticsearch must be provided separately.
+- The Vercel frontend is deployed. Render's free API/database/Redis resources are being provisioned; the current free setup cannot send scheduled email without a worker. Free PostgreSQL/Redis are temporary and Elasticsearch must be provided separately.
 - Production Google OAuth callback, Vercel web origin, Render API origin, provider secrets, and Elasticsearch endpoint must be entered in Render/Vercel/Google Cloud settings after provider URLs are assigned.
 
 ## Still needs end-to-end verification
