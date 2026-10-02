@@ -197,4 +197,4 @@ Follow the five-minute run-through in [docs/demo-script.md](docs/demo-script.md)
 
 ## Submission note
 
-The private repository is [github.com/baibhav16/reachinbox-email-scheduler](https://github.com/baibhav16/reachinbox-email-scheduler). Before handing it in, grant repository access to **Mitrajit** and **Yadav036** as required by the assignment, and include a demo video no longer than five minutes. A suggested run-through is in [docs/demo-script.md](docs/demo-script.md).
+The private repository is [github.com/baibhav16/reachinbox-email-scheduler](https://github.com/baibhav16/reachinbox-email-scheduler).
