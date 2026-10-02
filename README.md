@@ -2,6 +2,10 @@
 
 A full stack scheduled email application built around persistent BullMQ delayed jobs. PostgreSQL is the durable application record, Redis stores queue state and atomic sender limits, and a separate worker sends through SMTP. The web app follows the supplied ReachInbox mail dashboard references.
 
+
+# Video
+https://drive.google.com/file/d/17U_nyT2VZ7-MpLe3tLcuUurIS6t6EQdd/view?usp=drive_link
+
 ## Features
 
 - Google OAuth login with signed, HTTP-only session cookies.
